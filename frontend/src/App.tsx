@@ -6,6 +6,8 @@ import TransportList from './pages/TransportList';
 import EditTransportForm from './pages/EditTransportForm'; // ✅ Added
 import Navbar from './components/Navbar';
 import './App.css';
+import 'leaflet/dist/leaflet.css';
+
 
 const { Header, Content } = Layout;
 
