@@ -12,7 +12,7 @@ const EditTransportForm: React.FC = () => {
   useEffect(() => {
     const fetchRecord = async () => {
       try {
-        const res = await fetch(`http://localhost:5000/transport/${id}`);
+        const res = await fetch(`https://transport-app-zy0l.onrender.com/transport/${id}`);
         const data = await res.json();
         form.setFieldsValue({
           ...data,
@@ -31,7 +31,7 @@ const EditTransportForm: React.FC = () => {
 
   const onFinish = async (values: any) => {
     try {
-      const res = await fetch(`http://localhost:5000/transport/${id}`, {
+      const res = await fetch(`https://transport-app-zy0l.onrender.com/transport/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

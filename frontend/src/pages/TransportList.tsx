@@ -24,7 +24,7 @@ const TransportList: React.FC = () => {
 
   const fetchRecords = async () => {
     try {
-      const res = await fetch('http://localhost:5000/transport');
+      const res = await fetch('https://transport-app-zy0l.onrender.com/transport');
       const data = await res.json();
       setRecords(data);
     } catch (err) {
@@ -39,7 +39,7 @@ const TransportList: React.FC = () => {
 
   const deleteRecord = async (id: number) => {
     try {
-      const res = await fetch(`http://localhost:5000/transport/${id}`, {
+      const res = await fetch(`https://transport-app-zy0l.onrender.com/transport/${id}`, {
         method: 'DELETE',
       });
 

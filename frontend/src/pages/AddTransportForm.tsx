@@ -8,7 +8,7 @@ const AddTransportForm: React.FC = () => {
 
   const onFinish = async (values: any) => {
     try {
-      const res = await fetch('http://localhost:5000/transport', {
+      const res = await fetch('https://transport-app-zy0l.onrender.com/transport', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(values)
