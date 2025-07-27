@@ -1,10 +1,21 @@
-import React, { useState, useEffect } from 'react';
+// AddTransportForm.tsx
+
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Form, Input, InputNumber, Button, message, Row, Col, DatePicker, Modal,
 } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  useMapEvents,
+  useMap
+} from 'react-leaflet';
 import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { GeoSearchControl, OpenStreetMapProvider } from 'leaflet-geosearch';
+import 'leaflet-geosearch/dist/geosearch.css';
 
 const markerIcon = new L.Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -12,21 +23,29 @@ const markerIcon = new L.Icon({
   iconAnchor: [12, 41],
 });
 
-const MAPMYINDIA_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjMzZGU1YzgyYjZiMzRhMDZhMzNmYWQzYmNlZjhiZWNjIiwiaCI6Im11cm11cjY0In0=';
-
-const reverseGeocode = async (lat: number, lng: number) => {
-  const url = `https://apis.mapmyindia.com/advancedmaps/v1/${MAPMYINDIA_API_KEY}/rev_geocode?lat=${lat}&lng=${lng}`;
-  const response = await fetch(url);
-  const data = await response.json();
-  return data?.results?.[0]?.formatted_address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'transport-app' } });
+    const data = await res.json();
+    if (data?.address) {
+      const { village, town, city, county, state } = data.address;
+      return [village, town, city, county, state].filter(Boolean).join(', ');
+    } else {
+      return 'Unknown Location';
+    }
+  } catch (err) {
+    console.error('Reverse geocoding failed:', err);
+    return 'Location fetch failed';
+  }
 };
 
 const getDistance = async (start: L.LatLngLiteral, end: L.LatLngLiteral) => {
-  const url = `https://apis.mapmyindia.com/advancedmaps/v1/${MAPMYINDIA_API_KEY}/route_adv/driving/${start.lng},${start.lat};${end.lng},${end.lat}`;
-  const response = await fetch(url);
-  const data = await response.json();
-  const distanceKm = data?.routes?.[0]?.summary?.distance / 1000;
-  return Math.round(distanceKm);
+  const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=false`;
+  const res = await fetch(url);
+  const data = await res.json();
+  const meters = data?.routes?.[0]?.distance;
+  return meters ? Math.round(meters / 1000) : 0;
 };
 
 const LocationPicker = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => void }) => {
@@ -35,6 +54,41 @@ const LocationPicker = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => v
       onSelect(e.latlng);
     },
   });
+  return null;
+};
+
+const SearchControl = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => void }) => {
+  const map = useMap();
+  const controlRef = useRef<L.Control>();
+
+  useEffect(() => {
+    const provider = new OpenStreetMapProvider();
+
+    const searchControl = new GeoSearchControl({
+      provider,
+      style: 'bar',
+      showMarker: false,
+      showPopup: false,
+      autoClose: true,
+      retainZoomLevel: false,
+      animateZoom: true,
+      keepResult: false,
+      searchLabel: 'Enter location...',
+    });
+
+    controlRef.current = searchControl;
+    map.addControl(searchControl);
+
+    map.on('geosearch/showlocation', (e: any) => {
+      const latlng = e.location?.latLng || { lat: e.location.y, lng: e.location.x };
+      onSelect(latlng);
+    });
+
+    return () => {
+      map.removeControl(searchControl);
+    };
+  }, [map, onSelect]);
+
   return null;
 };
 
@@ -57,8 +111,10 @@ const AddTransportForm: React.FC = () => {
     setSelectedPosition(latlng);
     const address = await reverseGeocode(latlng.lat, latlng.lng);
     form.setFieldValue(selectingField!, address);
+
     if (selectingField === 'starting_point') setStartCoords(latlng);
     if (selectingField === 'destination_point') setEndCoords(latlng);
+
     setModalVisible(false);
     setSelectedPosition(null);
   };
@@ -162,7 +218,6 @@ const AddTransportForm: React.FC = () => {
         </Form.Item>
       </Form>
 
-      {/* Map Modal */}
       <Modal
         open={modalVisible}
         title={`Select ${selectingField === 'starting_point' ? 'Starting' : 'Destination'} Point`}
@@ -170,13 +225,19 @@ const AddTransportForm: React.FC = () => {
         footer={null}
         width={800}
       >
-        <MapContainer center={[20.5937, 78.9629]} zoom={5} style={{ height: '400px', width: '100%' }}>
+        <MapContainer
+          center={[20.5937, 78.9629]}
+          zoom={5}
+          style={{ height: '400px', width: '100%' }}
+          whenReady={({ target }) => setTimeout(() => target.invalidateSize(), 100)}
+        >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution="&copy; OpenStreetMap contributors"
           />
           {selectedPosition && <Marker position={selectedPosition} icon={markerIcon} />}
           <LocationPicker onSelect={handleMapClick} />
+          <SearchControl onSelect={handleMapClick} />
         </MapContainer>
       </Modal>
     </div>
