@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Form, Input, InputNumber, Button, message, Row, Col, DatePicker, Modal } from 'antd';
+import React, { useState, useEffect } from 'react';
+import {
+  Form, Input, InputNumber, Button, message, Row, Col, DatePicker, Modal,
+} from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -9,6 +11,23 @@ const markerIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
 });
+
+const MAPMYINDIA_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjMzZGU1YzgyYjZiMzRhMDZhMzNmYWQzYmNlZjhiZWNjIiwiaCI6Im11cm11cjY0In0=';
+
+const reverseGeocode = async (lat: number, lng: number) => {
+  const url = `https://apis.mapmyindia.com/advancedmaps/v1/${MAPMYINDIA_API_KEY}/rev_geocode?lat=${lat}&lng=${lng}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  return data?.results?.[0]?.formatted_address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+};
+
+const getDistance = async (start: L.LatLngLiteral, end: L.LatLngLiteral) => {
+  const url = `https://apis.mapmyindia.com/advancedmaps/v1/${MAPMYINDIA_API_KEY}/route_adv/driving/${start.lng},${start.lat};${end.lng},${end.lat}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  const distanceKm = data?.routes?.[0]?.summary?.distance / 1000;
+  return Math.round(distanceKm);
+};
 
 const LocationPicker = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => void }) => {
   useMapEvents({
@@ -26,18 +45,31 @@ const AddTransportForm: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectingField, setSelectingField] = useState<'starting_point' | 'destination_point' | null>(null);
   const [selectedPosition, setSelectedPosition] = useState<L.LatLngLiteral | null>(null);
+  const [startCoords, setStartCoords] = useState<L.LatLngLiteral | null>(null);
+  const [endCoords, setEndCoords] = useState<L.LatLngLiteral | null>(null);
 
   const openMapModal = (field: 'starting_point' | 'destination_point') => {
     setSelectingField(field);
     setModalVisible(true);
   };
 
-  const handleMapClick = (latlng: L.LatLngLiteral) => {
+  const handleMapClick = async (latlng: L.LatLngLiteral) => {
     setSelectedPosition(latlng);
-    form.setFieldValue(selectingField!, `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`);
+    const address = await reverseGeocode(latlng.lat, latlng.lng);
+    form.setFieldValue(selectingField!, address);
+    if (selectingField === 'starting_point') setStartCoords(latlng);
+    if (selectingField === 'destination_point') setEndCoords(latlng);
     setModalVisible(false);
     setSelectedPosition(null);
   };
+
+  useEffect(() => {
+    if (startCoords && endCoords) {
+      getDistance(startCoords, endCoords).then((km) => {
+        form.setFieldValue('distance_km', km);
+      });
+    }
+  }, [startCoords, endCoords]);
 
   const onFinish = async (values: any) => {
     try {
@@ -84,34 +116,16 @@ const AddTransportForm: React.FC = () => {
               <Input />
             </Form.Item>
           </Col>
-
           <Col span={8}>
-            <Form.Item
-              name="starting_point"
-              label="Starting Point"
-              rules={[{ required: true }]}
-            >
-              <Input
-                readOnly
-                onClick={() => openMapModal('starting_point')}
-                placeholder="Click to select from map"
-              />
+            <Form.Item name="starting_point" label="Starting Point" rules={[{ required: true }]}>
+              <Input readOnly onClick={() => openMapModal('starting_point')} placeholder="Click to select from map" />
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item
-              name="destination_point"
-              label="Destination Point"
-              rules={[{ required: true }]}
-            >
-              <Input
-                readOnly
-                onClick={() => openMapModal('destination_point')}
-                placeholder="Click to select from map"
-              />
+            <Form.Item name="destination_point" label="Destination Point" rules={[{ required: true }]}>
+              <Input readOnly onClick={() => openMapModal('destination_point')} placeholder="Click to select from map" />
             </Form.Item>
           </Col>
-
           <Col span={8}>
             <Form.Item name="quantity_qtls" label="Quantity (Qtls)" rules={[{ required: true }]}>
               <InputNumber className="w-full" />
@@ -124,7 +138,7 @@ const AddTransportForm: React.FC = () => {
           </Col>
           <Col span={8}>
             <Form.Item name="distance_km" label="Distance (KM)" rules={[{ required: true }]}>
-              <InputNumber className="w-full" />
+              <InputNumber className="w-full" readOnly />
             </Form.Item>
           </Col>
           <Col span={8}>
@@ -143,11 +157,8 @@ const AddTransportForm: React.FC = () => {
             </Form.Item>
           </Col>
         </Row>
-
         <Form.Item className="text-center">
-          <Button type="primary" htmlType="submit">
-            Add
-          </Button>
+          <Button type="primary" htmlType="submit">Add</Button>
         </Form.Item>
       </Form>
 
