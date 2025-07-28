@@ -18,10 +18,13 @@ const AddTransportForm: React.FC = () => {
   const [endAddress, setEndAddress] = useState('');
   const controlRef = useRef<L.Control | null>(null);
 
+  const startMapRef = useRef<L.Map | null>(null);
+  const endMapRef = useRef<L.Map | null>(null);
+
   const provider = new OpenStreetMapProvider();
 
-  // @ts-ignore - GeoSearchControl has no TS types
-  const searchControl = new GeoSearchControl({
+  // @ts-ignore - GeoSearchControl has no types
+  const searchControl: any = new GeoSearchControl({
     provider,
     style: 'bar',
     autoClose: true,
@@ -60,6 +63,14 @@ const AddTransportForm: React.FC = () => {
 
     return null;
   };
+  useEffect(() => {
+  if (endModalVisible && endMapRef.current) {
+    setTimeout(() => {
+      endMapRef.current?.invalidateSize();
+    }, 100);
+  }
+}, [endModalVisible]);
+
 
   const handleSubmit = (values: any) => {
     console.log('Form submitted:', {
@@ -70,15 +81,19 @@ const AddTransportForm: React.FC = () => {
       endAddress,
     });
   };
-   const mapRef = useRef<L.Map>(null);
 
-useEffect(() => {
-  if (mapRef.current) {
-    setTimeout(() => {
-      mapRef.current?.invalidateSize();
-    }, 100);
-  }
-}, [startModalVisible, endModalVisible]);
+  // Invalidate size when modals open
+  useEffect(() => {
+    if (startModalVisible && startMapRef.current) {
+      setTimeout(() => startMapRef.current?.invalidateSize(), 100);
+    }
+  }, [startModalVisible]);
+
+  useEffect(() => {
+    if (endModalVisible && endMapRef.current) {
+      setTimeout(() => endMapRef.current?.invalidateSize(), 100);
+    }
+  }, [endModalVisible]);
 
   return (
     <div className="p-6">
@@ -130,13 +145,11 @@ useEffect(() => {
         footer={null}
         width={800}
       >
-      
-
-<MapContainer
+       <MapContainer
   center={[20.5937, 78.9629]}
   zoom={5}
   style={{ height: '500px', width: '100%' }}
-  ref={mapRef}
+  ref={endMapRef}
 >
 
           <TileLayer
@@ -163,8 +176,9 @@ useEffect(() => {
   center={[20.5937, 78.9629]}
   zoom={5}
   style={{ height: '500px', width: '100%' }}
-  ref={mapRef}
+  ref={endMapRef}
 >
+
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution="&copy; OpenStreetMap contributors"
