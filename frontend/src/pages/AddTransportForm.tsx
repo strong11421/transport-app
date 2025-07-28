@@ -262,8 +262,12 @@ const AddTransportForm: React.FC = () => {
           center={[20.5937, 78.9629]}
           zoom={5}
           style={{ height: '400px', width: '100%' }}
-          // Fixed: Proper whenReady callback signature with map instance
-          whenReady={(map) => setTimeout(() => map.target.invalidateSize(), 100)}
+          // Fixed: Use ref to handle map instance after render
+          ref={(mapRef) => {
+            if (mapRef) {
+              setTimeout(() => mapRef.invalidateSize(), 100);
+            }
+          }}
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
