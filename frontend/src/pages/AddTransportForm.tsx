@@ -1,194 +1,182 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, useMap, Popup } from 'react-leaflet';
-import { OpenStreetMapProvider, GeoSearchControl } from 'leaflet-geosearch';
-import { Input, Button, Modal, Form, Select } from 'antd';
-import 'leaflet/dist/leaflet.css';
-import 'leaflet-geosearch/dist/geosearch.css';
+import React, { useState, useEffect } from 'react';
+import {
+  Form, Input, InputNumber, Button, message, Row, Col, DatePicker, Modal,
+} from 'antd';
+import { useNavigate } from 'react-router-dom';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 
-const { Option } = Select;
+const markerIcon = new L.Icon({
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+});
+
+const MAPMYINDIA_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjMzZGU1YzgyYjZiMzRhMDZhMzNmYWQzYmNlZjhiZWNjIiwiaCI6Im11cm11cjY0In0=';
+
+const reverseGeocode = async (lat: number, lng: number) => {
+  const url = `https://apis.mapmyindia.com/advancedmaps/v1/${MAPMYINDIA_API_KEY}/rev_geocode?lat=${lat}&lng=${lng}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  return data?.results?.[0]?.formatted_address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+};
+
+const getDistance = async (start: L.LatLngLiteral, end: L.LatLngLiteral) => {
+  const url = `https://apis.mapmyindia.com/advancedmaps/v1/${MAPMYINDIA_API_KEY}/route_adv/driving/${start.lng},${start.lat};${end.lng},${end.lat}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  const distanceKm = data?.routes?.[0]?.summary?.distance / 1000;
+  return Math.round(distanceKm);
+};
+
+const LocationPicker = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => void }) => {
+  useMapEvents({
+    click(e) {
+      onSelect(e.latlng);
+    },
+  });
+  return null;
+};
 
 const AddTransportForm: React.FC = () => {
   const [form] = Form.useForm();
-  const [startModalVisible, setStartModalVisible] = useState(false);
-  const [endModalVisible, setEndModalVisible] = useState(false);
-  const [startPoint, setStartPoint] = useState<L.LatLng | null>(null);
-  const [endPoint, setEndPoint] = useState<L.LatLng | null>(null);
-  const [startAddress, setStartAddress] = useState('');
-  const [endAddress, setEndAddress] = useState('');
-  const controlRef = useRef<L.Control | null>(null);
+  const navigate = useNavigate();
 
-  const startMapRef = useRef<L.Map | null>(null);
-  const endMapRef = useRef<L.Map | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectingField, setSelectingField] = useState<'starting_point' | 'destination_point' | null>(null);
+  const [selectedPosition, setSelectedPosition] = useState<L.LatLngLiteral | null>(null);
+  const [startCoords, setStartCoords] = useState<L.LatLngLiteral | null>(null);
+  const [endCoords, setEndCoords] = useState<L.LatLngLiteral | null>(null);
 
-  const provider = new OpenStreetMapProvider();
+  const openMapModal = (field: 'starting_point' | 'destination_point') => {
+    setSelectingField(field);
+    setModalVisible(true);
+  };
 
-  // @ts-ignore - GeoSearchControl has no types
-  const searchControl: any = new GeoSearchControl({
-    provider,
-    style: 'bar',
-    autoClose: true,
-    autoComplete: true,
-    searchLabel: 'Enter location...',
-    keepResult: true,
-  });
+  const handleMapClick = async (latlng: L.LatLngLiteral) => {
+    setSelectedPosition(latlng);
+    const address = await reverseGeocode(latlng.lat, latlng.lng);
+    form.setFieldValue(selectingField!, address);
+    if (selectingField === 'starting_point') setStartCoords(latlng);
+    if (selectingField === 'destination_point') setEndCoords(latlng);
+    setModalVisible(false);
+    setSelectedPosition(null);
+  };
 
-  const LocationSelector = ({
-    setPoint,
-    setAddress,
-    onClose,
-  }: {
-    setPoint: (point: L.LatLng) => void;
-    setAddress: (addr: string) => void;
-    onClose: () => void;
-  }) => {
-    const map = useMap();
+  useEffect(() => {
+    if (startCoords && endCoords) {
+      getDistance(startCoords, endCoords).then((km) => {
+        form.setFieldValue('distance_km', km);
+      });
+    }
+  }, [startCoords, endCoords]);
 
-    useEffect(() => {
-      map.addControl(searchControl);
-      controlRef.current = searchControl;
-
-      map.on('geosearch/showlocation', (result: any) => {
-        const { x, y, label } = result.location;
-        const latlng = L.latLng(y, x);
-        setPoint(latlng);
-        setAddress(label);
-        onClose();
+  const onFinish = async (values: any) => {
+    try {
+      const res = await fetch('https://transport-app-zy0l.onrender.com/transport', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
       });
 
-      return () => {
-        map.removeControl(searchControl);
-      };
-    }, [map]);
+      const data = await res.json();
 
-    return null;
-  };
-  useEffect(() => {
-  if (endModalVisible && endMapRef.current) {
-    setTimeout(() => {
-      endMapRef.current?.invalidateSize();
-    }, 100);
-  }
-}, [endModalVisible]);
-
-
-  const handleSubmit = (values: any) => {
-    console.log('Form submitted:', {
-      ...values,
-      startPoint,
-      endPoint,
-      startAddress,
-      endAddress,
-    });
-  };
-
-  // Invalidate size when modals open
-  useEffect(() => {
-    if (startModalVisible && startMapRef.current) {
-      setTimeout(() => startMapRef.current?.invalidateSize(), 100);
+      if (res.ok) {
+        message.success('Transport record added successfully!');
+        form.resetFields();
+        setTimeout(() => {
+          navigate('/view');
+        }, 1000);
+      } else {
+        message.error(data.error || 'Failed to add record');
+      }
+    } catch (err) {
+      console.error(err);
+      message.error('Server error');
     }
-  }, [startModalVisible]);
-
-  useEffect(() => {
-    if (endModalVisible && endMapRef.current) {
-      setTimeout(() => endMapRef.current?.invalidateSize(), 100);
-    }
-  }, [endModalVisible]);
+  };
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl mb-4 font-bold">Add Transport Record</h1>
-      <Form form={form} onFinish={handleSubmit} layout="vertical">
-        <Form.Item label="Vehicle Number" name="vehicleNumber" rules={[{ required: true }]}>
-          <Input />
+    <div className="max-w-screen-lg mx-auto bg-white p-8 shadow-lg rounded">
+      <h2 className="text-2xl font-bold mb-6 text-center">Add Transport Record</h2>
+      <Form form={form} layout="vertical" onFinish={onFinish}>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Form.Item name="date_of_transport" label="Date of Transport" rules={[{ required: true }]}>
+              <DatePicker className="w-full" format="YYYY-MM-DD" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="vehicle_no" label="Vehicle No" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="dc_gp_no" label="DC/GP No">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="starting_point" label="Starting Point" rules={[{ required: true }]}>
+              <Input readOnly onClick={() => openMapModal('starting_point')} placeholder="Click to select from map" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="destination_point" label="Destination Point" rules={[{ required: true }]}>
+              <Input readOnly onClick={() => openMapModal('destination_point')} placeholder="Click to select from map" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="quantity_qtls" label="Quantity (Qtls)" rules={[{ required: true }]}>
+              <InputNumber className="w-full" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="no_of_bags" label="No of Bags" rules={[{ required: true }]}>
+              <InputNumber className="w-full" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="distance_km" label="Distance (KM)" rules={[{ required: true }]}>
+              <InputNumber className="w-full" readOnly />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="rate_per_km" label="Rate per KM" rules={[{ required: true }]}>
+              <InputNumber className="w-full" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="amount" label="Amount" rules={[{ required: true }]}>
+              <InputNumber className="w-full" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="outward_lf_no" label="Outward LF No">
+              <Input />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Form.Item className="text-center">
+          <Button type="primary" htmlType="submit">Add</Button>
         </Form.Item>
-
-        <Form.Item label="Start Location">
-          <Input
-            readOnly
-            value={startAddress}
-            placeholder="Click to select on map"
-            onClick={() => setStartModalVisible(true)}
-          />
-        </Form.Item>
-
-        <Form.Item label="End Location">
-          <Input
-            readOnly
-            value={endAddress}
-            placeholder="Click to select on map"
-            onClick={() => setEndModalVisible(true)}
-          />
-        </Form.Item>
-
-        <Form.Item label="Driver Name" name="driverName" rules={[{ required: true }]}>
-          <Input />
-        </Form.Item>
-
-        <Form.Item label="Mode of Transport" name="mode" rules={[{ required: true }]}>
-          <Select placeholder="Select mode">
-            <Option value="truck">Truck</Option>
-            <Option value="van">Van</Option>
-            <Option value="bike">Bike</Option>
-          </Select>
-        </Form.Item>
-
-        <Button type="primary" htmlType="submit">
-          Submit
-        </Button>
       </Form>
 
-      {/* Start Location Modal */}
+      {/* Map Modal */}
       <Modal
-        open={startModalVisible}
-        onCancel={() => setStartModalVisible(false)}
+        open={modalVisible}
+        title={`Select ${selectingField === 'starting_point' ? 'Starting' : 'Destination'} Point`}
+        onCancel={() => setModalVisible(false)}
         footer={null}
         width={800}
       >
-       <MapContainer
-  center={[20.5937, 78.9629]}
-  zoom={5}
-  style={{ height: '500px', width: '100%' }}
-  ref={endMapRef}
->
-
+        <MapContainer center={[20.5937, 78.9629]} zoom={5} style={{ height: '400px', width: '100%' }}>
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution="&copy; OpenStreetMap contributors"
           />
-          <LocationSelector
-            setPoint={setStartPoint}
-            setAddress={setStartAddress}
-            onClose={() => setStartModalVisible(false)}
-          />
-          {startPoint && <Marker position={startPoint}><Popup>Start Location</Popup></Marker>}
-        </MapContainer>
-      </Modal>
-
-      {/* End Location Modal */}
-      <Modal
-        open={endModalVisible}
-        onCancel={() => setEndModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <MapContainer
-  center={[20.5937, 78.9629]}
-  zoom={5}
-  style={{ height: '500px', width: '100%' }}
-  ref={endMapRef}
->
-
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution="&copy; OpenStreetMap contributors"
-          />
-          <LocationSelector
-            setPoint={setEndPoint}
-            setAddress={setEndAddress}
-            onClose={() => setEndModalVisible(false)}
-          />
-          {endPoint && <Marker position={endPoint}><Popup>End Location</Popup></Marker>}
+          {selectedPosition && <Marker position={selectedPosition} icon={markerIcon} />}
+          <LocationPicker onSelect={handleMapClick} />
         </MapContainer>
       </Modal>
     </div>
