@@ -17,6 +17,21 @@ import 'leaflet/dist/leaflet.css';
 import { GeoSearchControl, OpenStreetMapProvider } from 'leaflet-geosearch';
 import 'leaflet-geosearch/dist/geosearch.css';
 
+// Fixed: Proper type definition for form values
+interface TransportFormValues {
+  date_of_transport: string;
+  vehicle_no: string;
+  dc_gp_no?: string;
+  starting_point: string;
+  destination_point: string;
+  quantity_qtls: number;
+  no_of_bags: number;
+  distance_km: number;
+  rate_per_km: number;
+  amount: number;
+  outward_lf_no?: string;
+}
+
 const markerIcon = new L.Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   iconSize: [25, 41],
@@ -40,12 +55,17 @@ const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
   }
 };
 
-const getDistance = async (start: L.LatLngLiteral, end: L.LatLngLiteral) => {
-  const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=false`;
-  const res = await fetch(url);
-  const data = await res.json();
-  const meters = data?.routes?.[0]?.distance;
-  return meters ? Math.round(meters / 1000) : 0;
+const getDistance = async (start: L.LatLngLiteral, end: L.LatLngLiteral): Promise<number> => {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=false`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const meters = data?.routes?.[0]?.distance;
+    return meters ? Math.round(meters / 1000) : 0;
+  } catch (err) {
+    console.error('Distance calculation failed:', err);
+    return 0;
+  }
 };
 
 const LocationPicker = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => void }) => {
@@ -59,12 +79,13 @@ const LocationPicker = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => v
 
 const SearchControl = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => void }) => {
   const map = useMap();
-  const controlRef = useRef<L.Control>();
+  const controlRef = useRef<L.Control | null>(null);
 
   useEffect(() => {
     const provider = new OpenStreetMapProvider();
 
-    const searchControl = new GeoSearchControl({
+    // Fixed: Proper type casting for GeoSearchControl
+    const searchControl = new (GeoSearchControl as any)({
       provider,
       style: 'bar',
       showMarker: false,
@@ -79,13 +100,19 @@ const SearchControl = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => vo
     controlRef.current = searchControl;
     map.addControl(searchControl);
 
-    map.on('geosearch/showlocation', (e: any) => {
+    // Fixed: Proper event handler typing
+    const handleGeoSearch = (e: any) => {
       const latlng = e.location?.latLng || { lat: e.location.y, lng: e.location.x };
       onSelect(latlng);
-    });
+    };
+
+    map.on('geosearch/showlocation', handleGeoSearch);
 
     return () => {
-      map.removeControl(searchControl);
+      if (controlRef.current) {
+        map.removeControl(controlRef.current);
+      }
+      map.off('geosearch/showlocation', handleGeoSearch);
     };
   }, [map, onSelect]);
 
@@ -93,7 +120,8 @@ const SearchControl = ({ onSelect }: { onSelect: (latlng: L.LatLngLiteral) => vo
 };
 
 const AddTransportForm: React.FC = () => {
-const [form] = Form.useForm<any>();
+  // Fixed: Proper form type
+  const [form] = Form.useForm<TransportFormValues>();
   const navigate = useNavigate();
 
   const [modalVisible, setModalVisible] = useState(false);
@@ -110,10 +138,13 @@ const [form] = Form.useForm<any>();
   const handleMapClick = async (latlng: L.LatLngLiteral) => {
     setSelectedPosition(latlng);
     const address = await reverseGeocode(latlng.lat, latlng.lng);
-    form.setFieldValue(selectingField!, address);
+    
+    if (selectingField) {
+      form.setFieldValue(selectingField, address);
 
-    if (selectingField === 'starting_point') setStartCoords(latlng);
-    if (selectingField === 'destination_point') setEndCoords(latlng);
+      if (selectingField === 'starting_point') setStartCoords(latlng);
+      if (selectingField === 'destination_point') setEndCoords(latlng);
+    }
 
     setModalVisible(false);
     setSelectedPosition(null);
@@ -123,11 +154,13 @@ const [form] = Form.useForm<any>();
     if (startCoords && endCoords) {
       getDistance(startCoords, endCoords).then((km) => {
         form.setFieldValue('distance_km', km);
+      }).catch((err) => {
+        console.error('Failed to calculate distance:', err);
       });
     }
-  }, [startCoords, endCoords]);
+  }, [startCoords, endCoords, form]);
 
-  const onFinish = async (values: any) => {
+  const onFinish = async (values: TransportFormValues) => {
     try {
       const res = await fetch('https://transport-app-zy0l.onrender.com/transport', {
         method: 'POST',
@@ -229,7 +262,8 @@ const [form] = Form.useForm<any>();
           center={[20.5937, 78.9629]}
           zoom={5}
           style={{ height: '400px', width: '100%' }}
-          whenReady={({ target }) => setTimeout(() => target.invalidateSize(), 100)}
+          // Fixed: Proper whenReady callback signature with map instance
+          whenReady={(map) => setTimeout(() => map.target.invalidateSize(), 100)}
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
